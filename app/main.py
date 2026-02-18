@@ -4,7 +4,7 @@ import uuid
 import logging
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Header
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from app.logging_config import setup_logging
@@ -18,15 +18,20 @@ logger = logging.getLogger("burak")
 app = FastAPI(
     title=os.getenv("APP_NAME", "Burak AI Backend"),
     version="1.0.0",
+    docs_url="/docs",
+    redoc_url=None,
+    openapi_url="/openapi.json",
 )
 
 class ChatRequest(BaseModel):
     message: str
 
+
 @app.middleware("http")
 async def request_id_and_log(request: Request, call_next):
     request_id = str(uuid.uuid4())[:8]
     start = time.time()
+
     logger.info(f"[{request_id}] -> {request.method} {request.url.path}")
 
     try:
@@ -40,12 +45,14 @@ async def request_id_and_log(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     return response
 
+
 @app.exception_handler(RuntimeError)
 async def runtime_error_handler(request: Request, exc: RuntimeError):
     return JSONResponse(
         status_code=429,
         content={"error": "runtime", "message": str(exc)},
     )
+
 
 @app.exception_handler(Exception)
 async def any_exception_handler(request: Request, exc: Exception):
@@ -54,14 +61,30 @@ async def any_exception_handler(request: Request, exc: Exception):
         content={"error": "internal_server_error", "message": str(exc)},
     )
 
+
+# Root endpoint
 @app.get("/")
 def root():
-    return {"status": "ok", "docs": "/docs", "health": "/health"}
+    return {
+        "status": "ok",
+        "docs": "/docs",
+        "health": "/health"
+    }
 
+
+# Health check
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+
+# Redirect /docs -> /docs/
+@app.get("/docs", include_in_schema=False)
+def docs_redirect():
+    return RedirectResponse(url="/docs/")
+
+
+# Main chat endpoint
 @app.post("/chat")
 def chat(
     request: Request,
